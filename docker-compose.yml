@@ -1,0 +1,61 @@
+services:
+  # API Node.js
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    ports:
+      - "3000:3000"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - SUPABASE_BUCKET=${SUPABASE_BUCKET}
+      - PROCESSOR_URL=http://processor:8001
+      - PORT=3000
+    volumes:
+      - ./upload:/app/upload
+      - ./temp:/app/temp
+    depends_on:
+      - processor
+    networks:
+      - audio-network
+
+  # Worker Node.js
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    command: node worker.js
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - SUPABASE_BUCKET=${SUPABASE_BUCKET}
+      - PROCESSOR_URL=http://processor:8001
+      - WORKER_INTERVAL_MS=60000
+    volumes:
+      - ./temp:/app/temp
+    depends_on:
+      - api
+      - processor
+    networks:
+      - audio-network
+
+  # ÚNICO serviço Python - faz TUDO
+  processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./training_data:/app/training_data
+      - ./temp:/app/temp
+      - ./trainable_slogan_mixer.py:/app/trainable_slogan_mixer.py
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - audio-network
+
+networks:
+  audio-network:
+    driver: bridge

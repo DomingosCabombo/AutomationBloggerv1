@@ -1,0 +1,37 @@
+# Ambientes Virtuais e Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Node modules
+node_modules/
+crystal-jackrabbit-jump/node_modules/
+crystal-jackrabbit-jump/.env
+
+# Audio e Ficheiros Pesados
+temp/
+upload/
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+resultado_*.wav
+
+# Binários e Executáveis
+cfd.exe
+cloudflared.exe
+
+# VSCode e IDEs
+.vscode/
+.idea/
+
+# Sistema Operativo
+.DS_Store
+Thumbs.db

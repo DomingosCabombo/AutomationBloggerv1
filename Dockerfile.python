@@ -1,0 +1,35 @@
+FROM python:3.11-slim
+WORKDIR /app
+
+# Instala dependências de sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsndfile1 \
+    libsndfile1-dev \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia ficheiros Python
+COPY trainable_slogan_mixer.py .
+COPY extract_slogan_positions.py .
+COPY simple_training.py .
+
+# Cria diretórios necessários
+RUN mkdir -p training_data/music_library \
+    training_data/slogans \
+    training_data/annotations \
+    training_data/models \
+    training_data/features \
+    training_data/exports \
+    temp
+
+# Expõe porta 8001
+EXPOSE 8001
+
+# Comando padrão - inicia o servidor
+CMD ["python", "trainable_slogan_mixer.py"]
