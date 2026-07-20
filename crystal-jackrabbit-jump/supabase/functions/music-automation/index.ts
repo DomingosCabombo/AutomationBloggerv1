@@ -263,12 +263,7 @@ async function scrapeVicenteNews(artistNames: string[], supabase: any, userId: s
       const normTitle = normalizeText(title);
       for (const artist of artistNames) {
         if (normTitle.includes(normalizeText(artist))) {
-          await logToSupabase(
-            supabase,
-            userId,
-            "info",
-            `🎵 [vicentenews] Encontrado: "${title}" — artista: ${artist}`
-          );
+          console.log(`🎵 [vicentenews] Encontrado: "${title}" — artista: ${artist}`);
           foundSongs.push({ title, link: href, artist, sourceSite: "vicentenews" });
           break;
         }
@@ -415,12 +410,7 @@ async function scrapeBueDeMusica(artistNames: string[], supabase: any, userId: s
       const normTitle = normalizeText(title);
       for (const artist of artistNames) {
         if (normTitle.includes(normalizeText(artist))) {
-          await logToSupabase(
-            supabase,
-            userId,
-            "info",
-            `🎵 [buedemusica] Encontrado: "${title}" — artista: ${artist}`
-          );
+          console.log(`🎵 [buedemusica] Encontrado: "${title}" — artista: ${artist}`);
           foundSongs.push({ title, link, artist, sourceSite: "buedemusica" });
           break;
         }
@@ -869,6 +859,8 @@ serve(async (req) => {
     }
 
     let processedCount = 0;
+    let duplicateCount = 0;
+    const duplicateTitles: string[] = [];
 
     for (const song of allFoundSongs) {
       try {
@@ -884,6 +876,8 @@ serve(async (req) => {
 
         if (isDup) {
           console.log(`⏩ Saltado (duplicado): "${song.title}" [${song.sourceSite}]`);
+          duplicateCount++;
+          duplicateTitles.push(song.title);
           continue;
         }
 
@@ -990,6 +984,33 @@ serve(async (req) => {
     }
 
     console.log(`✅ Finalizado. ${processedCount} música(s) nova(s) processada(s).`);
+
+    if (processedCount === 0) {
+      if (duplicateCount > 0) {
+        await logToSupabase(
+          supabaseClient,
+          currentUserId,
+          "info",
+          `😴 Nenhuma música nova (música(s) já existente(s) ignorada(s): ${duplicateTitles.join(', ')})`
+        );
+      } else {
+        await logToSupabase(
+          supabaseClient,
+          currentUserId,
+          "info",
+          "😴 Nenhuma música nova encontrada para os artistas monitorizados."
+        );
+      }
+    } else {
+      if (duplicateCount > 0) {
+        await logToSupabase(
+          supabaseClient,
+          currentUserId,
+          "info",
+          `⏩ Ignoradas ${duplicateCount} música(s) já existente(s).`
+        );
+      }
+    }
 
     return new Response(
       JSON.stringify({ success: true, processed: processedCount }),
