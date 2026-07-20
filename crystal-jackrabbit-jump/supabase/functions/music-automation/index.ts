@@ -680,6 +680,73 @@ async function isDuplicateSong(
   return false;
 }
 
+function parseFeaturedArtists(rawArtist: string, rawTitle: string): { title: string; artist: string } {
+  let title = rawTitle.trim();
+  let artist = rawArtist.trim();
+  let featured = "";
+
+  // 1. Extrair featured do título em parênteses ou colchetes
+  const featRegex = /\s*[\(\[](?:feat|featuring|ft|part|participação|participacao)\.?\s+([^\)\]]+)[\)\]]/i;
+  const featMatch = title.match(featRegex);
+
+  if (featMatch) {
+    featured = featMatch[1].trim();
+    title = title.replace(featRegex, "").trim();
+  } else {
+    // Tenta fora de parênteses/colchetes
+    const featRegexOutside = /\s+\b(?:feat|featuring|ft|part|participação|participacao)\.?\s+([^\n\-]+)/i;
+    const featMatchOutside = title.match(featRegexOutside);
+    if (featMatchOutside) {
+      featured = featMatchOutside[1].trim();
+      title = title.replace(featRegexOutside, "").trim();
+    }
+  }
+
+  // 2. Se o artista original contiver "feat" ou similar, extrai dele também
+  const artistFeatRegex = /\s*[,e]?\s*\b(?:feat|featuring|ft|part|participação|participacao)\.?\s+(.+)/i;
+  const artistFeatMatch = artist.match(artistFeatRegex);
+  if (artistFeatMatch) {
+    if (!featured) {
+      featured = artistFeatMatch[1].trim();
+    }
+    artist = artist.replace(artistFeatRegex, "").trim();
+  }
+
+  // 3. Normalizar os separadores do artista principal
+  let primaryList = artist
+    .split(/\s*,\s*|\s+e\s+|\s+&\s+/)
+    .map(a => a.trim())
+    .filter(a => a.length > 0);
+
+  let featuredList = featured
+    ? featured
+        .split(/\s*,\s*|\s+e\s+|\s+&\s+/)
+        .map(a => a.trim())
+        .filter(a => a.length > 0)
+    : [];
+
+  // Filtrar featured list para não conter ninguém que já esteja na primary list
+  featuredList = featuredList.filter(
+    f => !primaryList.some(p => p.toLowerCase() === f.toLowerCase())
+  );
+
+  const primaryStr = primaryList.join(" , ");
+  const featuredStr = featuredList.join(" , ");
+
+  let finalArtist = primaryStr;
+  if (featuredStr) {
+    finalArtist = `${primaryStr} feat. ${featuredStr}`;
+  }
+
+  // Limpar hífens extras no título
+  title = title.replace(/^\s*-\s*|\s*-\s*$/g, "").trim();
+
+  return {
+    title,
+    artist: finalArtist
+  };
+}
+
 // ==================== FUNÇÃO PRINCIPAL ====================
 
 serve(async (req) => {
@@ -865,11 +932,15 @@ serve(async (req) => {
     for (const song of allFoundSongs) {
       try {
         // ── Verifica duplicado com lógica inteligente ──
+        // ── Parse/Limpeza de Artistas e Feats no título ──
+        const parsedScraped = parseFeaturedArtists(song.artist, song.title);
+
+        // ── Verifica duplicado com lógica inteligente ──
         const isDup = await isDuplicateSong(
           supabaseClient,
           currentUserId,
-          song.artist,
-          song.title,
+          parsedScraped.artist,
+          parsedScraped.title,
           song.link,
           artistNames
         );
@@ -881,7 +952,7 @@ serve(async (req) => {
           continue;
         }
 
-        console.log(`🎯 Nova música: "${song.title}" (${song.artist}) [${song.sourceSite}]`);
+        console.log(`🎯 Nova música: "${parsedScraped.title}" (${parsedScraped.artist}) [${song.sourceSite}]`);
 
         // ── Obtém detalhes específicos do site ──
         let details;
@@ -908,8 +979,12 @@ serve(async (req) => {
           `✅ Link MP3 obtido para "${song.title}"`
         );
 
-        const finalArtist = details.extractedArtist || song.artist;
-        const finalTitle = details.extractedTitle || song.title;
+        const rawFinalArtist = details.extractedArtist || song.artist;
+        const rawFinalTitle = details.extractedTitle || song.title;
+
+        const finalParsed = parseFeaturedArtists(rawFinalArtist, rawFinalTitle);
+        const finalArtist = finalParsed.artist;
+        const finalTitle = finalParsed.title;
 
         const payload = {
           music_url: details.mp3Url,

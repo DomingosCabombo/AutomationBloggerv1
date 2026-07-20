@@ -102,3 +102,85 @@ const song3b = {
 };
 checkDuplicate(song3a, song3b);
 
+// ==================== TESTE PARSE FEATURED ARTISTS ====================
+
+function parseFeaturedArtists(rawArtist, rawTitle) {
+  let title = rawTitle.trim();
+  let artist = rawArtist.trim();
+  let featured = "";
+
+  // 1. Extrair featured do título em parênteses ou colchetes
+  const featRegex = /\s*[\(\[](?:feat|featuring|ft|part|participação|participacao)\.?\s+([^\)\]]+)[\)\]]/i;
+  const featMatch = title.match(featRegex);
+
+  if (featMatch) {
+    featured = featMatch[1].trim();
+    title = title.replace(featRegex, "").trim();
+  } else {
+    // Tenta fora de parênteses/colchetes
+    const featRegexOutside = /\s+\b(?:feat|featuring|ft|part|participação|participacao)\.?\s+([^\n\-]+)/i;
+    const featMatchOutside = title.match(featRegexOutside);
+    if (featMatchOutside) {
+      featured = featMatchOutside[1].trim();
+      title = title.replace(featRegexOutside, "").trim();
+    }
+  }
+
+  // 2. Se o artista original contiver "feat" ou similar, extrai dele também
+  const artistFeatRegex = /\s*[,e]?\s*\b(?:feat|featuring|ft|part|participação|participacao)\.?\s+(.+)/i;
+  const artistFeatMatch = artist.match(artistFeatRegex);
+  if (artistFeatMatch) {
+    if (!featured) {
+      featured = artistFeatMatch[1].trim();
+    }
+    artist = artist.replace(artistFeatRegex, "").trim();
+  }
+
+  // 3. Normalizar os separadores do artista principal
+  let primaryList = artist
+    .split(/\s*,\s*|\s+e\s+|\s+&\s+/)
+    .map(a => a.trim())
+    .filter(a => a.length > 0);
+
+  let featuredList = featured
+    ? featured
+        .split(/\s*,\s*|\s+e\s+|\s+&\s+/)
+        .map(a => a.trim())
+        .filter(a => a.length > 0)
+    : [];
+
+  // Filtrar featured list para não conter ninguém que já esteja na primary list
+  featuredList = featuredList.filter(
+    f => !primaryList.some(p => p.toLowerCase() === f.toLowerCase())
+  );
+
+  const primaryStr = primaryList.join(" , ");
+  const featuredStr = featuredList.join(" , ");
+
+  let finalArtist = primaryStr;
+  if (featuredStr) {
+    finalArtist = `${primaryStr} feat. ${featuredStr}`;
+  }
+
+  // Limpar hífens extras no título
+  title = title.replace(/^\s*-\s*|\s*-\s*$/g, "").trim();
+
+  return {
+    title,
+    artist: finalArtist
+  };
+}
+
+console.log("\n==================== TESTE PARSE FEATURED ARTISTS ====================");
+const testA = parseFeaturedArtists("3 Finer , Black Spygo , Tdjay", "Pegou (feat. Tdjay)");
+console.log("Input: 3 Finer , Black Spygo , Tdjay | Pegou (feat. Tdjay)");
+console.log("Result:", testA);
+
+const testB = parseFeaturedArtists("Black Spygo e 3 Finer", "Pegou (feat. Tdjay)");
+console.log("\nInput: Black Spygo e 3 Finer | Pegou (feat. Tdjay)");
+console.log("Result:", testB);
+
+const testC = parseFeaturedArtists("Preto Show", "Coringa (feat. Deezy, Filho Do Zua & Kelson Most Wanted)");
+console.log("\nInput: Preto Show | Coringa (feat. Deezy, Filho Do Zua & Kelson Most Wanted)");
+console.log("Result:", testC);
+
