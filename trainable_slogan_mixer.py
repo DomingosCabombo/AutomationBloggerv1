@@ -32,13 +32,198 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import joblib
 
+import urllib.parse
+
+# Configuração de Logs
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
 log = logging.getLogger("trainable_mixer")
 
+# ── Helper: Injetar tags ID3 e Capa ──────────────────────────────────────────
+def inject_id3_tags(file_path: str, title: str = None, artist: str = None, year: str = None, category: str = None, cover_url: str = None):
+    try:
+        from mutagen.mp3 import MP3
+        from mutagen.id3 import ID3, APIC, TIT2, TPE1, TYER, TCON, error
+        
+        audio = MP3(file_path, ID3=ID3)
+        try:
+            audio.add_tags()
+        except error:
+            pass
+        
+        if title:
+            audio.tags.add(TIT2(encoding=3, text=title))
+        if artist:
+            audio.tags.add(TPE1(encoding=3, text=artist))
+        if year:
+            audio.tags.add(TYER(encoding=3, text=str(year)))
+        if category:
+            audio.tags.add(TCON(encoding=3, text=category))
+            
+        if cover_url:
+            log.info(f"🎨 Descarregando capa para ID3: {cover_url}")
+            try:
+                req = urllib.request.Request(cover_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    cover_data = response.read()
+                
+                mime_type = 'image/jpeg'
+                if cover_url.lower().endswith('.png'):
+                    mime_type = 'image/png'
+                    
+                audio.tags.add(APIC(
+                    encoding=3,
+                    mime=mime_type,
+                    type=3, # Capa Frontal
+                    desc=u'Cover',
+                    data=cover_data
+                ))
+            except Exception as cover_err:
+                log.error(f"Erro ao descarregar capa para ID3: {cover_err}")
+                
+        audio.save()
+        log.info(f"✅ Tags ID3 gravadas com sucesso no MP3: {file_path}")
+    except Exception as e:
+        log.error(f"Erro ao injetar tags ID3 no áudio: {e}")
+
+# ── Helper: Encurtador de Links ──────────────────────────────────────────────
+def shorten_url(url: str, provider: str = "none", api_key: str = None) -> str:
+    if not provider or provider == "none":
+        return url
+        
+    log.info(f"🔗 Encurtando link com {provider}...")
+    try:
+        if provider == "tinyurl":
+            req_url = f"http://tinyurl.com/api-create.php?url={urllib.parse.quote(url)}"
+            req = urllib.request.Request(req_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return response.read().decode('utf-8').strip()
+                
+        elif provider == "cuttly" and api_key:
+            import requests
+            req_url = f"https://cutt.ly/api/api.php?key={api_key}&short={urllib.parse.quote(url)}"
+            res = requests.get(req_url, timeout=10)
+            if res.ok:
+                data = res.json()
+                if data.get("url", {}).get("status") == 7:
+                    return data["url"]["shortLink"]
+                else:
+                    log.error(f"Erro Cutt.ly (status {data.get('url', {}).get('status')})")
+                    
+        elif provider == "shrinkme" and api_key:
+            import requests
+            req_url = f"https://shrinkme.io/api?api={api_key}&url={urllib.parse.quote(url)}"
+            res = requests.get(req_url, timeout=10)
+            if res.ok:
+                data = res.json()
+                if "shortenedUrl" in data:
+                    return data["shortenedUrl"]
+                elif data.get("status") == "success" and "shortenedUrl" in data:
+                    return data["shortenedUrl"]
+                else:
+                    log.error(f"Erro ShrinkMe.io: {data.get('message')}")
+
+        elif provider == "shrinkearn" and api_key:
+            import requests
+            req_url = f"https://shrinkearn.com/api?api={api_key}&url={urllib.parse.quote(url)}"
+            res = requests.get(req_url, timeout=10)
+            if res.ok:
+                data = res.json()
+                if "shortenedUrl" in data:
+                    return data["shortenedUrl"]
+                elif data.get("status") == "success" and "shortenedUrl" in data:
+                    return data["shortenedUrl"]
+                else:
+                    log.error(f"Erro Shrinkearn.com: {data.get('message')}")
+
+        elif provider == "shortest" and api_key:
+            import requests
+            headers = {"public-api-token": api_key}
+            payload = {"urlToShorten": url}
+            res = requests.put("https://api.shorte.st/v1/data/adfly/url", headers=headers, data=payload, timeout=10)
+            if res.ok:
+                data = res.json()
+                if data.get("status") == "ok":
+                    return data.get("shortenedUrl", url)
+                    
+        elif provider == "adfly" and api_key:
+            if ":" in api_key:
+                uid, key = api_key.split(":", 1)
+                req_url = f"https://api.adf.ly/v1/shorten?key={key}&uid={uid}&url={urllib.parse.quote(url)}"
+                import requests
+                res = requests.get(req_url, timeout=10)
+                if res.ok:
+                    data = res.json()
+                    if data.get("errors") is None:
+                        return data.get("data", [{}])[0].get("short_url", url)
+            else:
+                log.error("Formato de chave Adf.ly inválido. Esperado 'uid:key'")
+    except Exception as e:
+        log.error(f"Erro ao encurtar link: {e}")
+        
+    return url
+
+# ── Helper: Renderizar Template Blogger ─────────────────────────────────────
+def render_blogger_template(template: str, artist: str, title: str, cover_url: str, download_link: str, bitrate: str, file_size_mb: float, category: str, year: str) -> str:
+    if not template:
+        cover_html = f'<img src="{cover_url}" alt="{artist} - {title}" style="max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px;" />' if cover_url else ""
+        return f"""
+    <div style="text-align: left; max-width: 800px; margin: 0 auto;">
+        <div style="text-align: center; margin-bottom: 20px;">
+            {cover_html}
+        </div>
+        <p style="text-align: justify; font-size: 16px; line-height: 1.6;">Já podes desfrutar da nova música de <strong>{artist}</strong> intitulada <strong>{title}</strong>, faça já o download e desfrute de boa música.</p>
+        <div style="margin-top: 20px; margin-bottom: 30px;">
+            <ul style="list-style-type: none; padding: 0; font-size: 15px; line-height: 1.8;">
+                <li><strong>Artista:</strong> {artist}</li>
+                <li><strong>Música:</strong> {title}</li>
+                <li><strong>Formato:</strong> Mp3</li>
+                <li><strong>Qualidade:</strong> {bitrate} kbps</li>
+                <li><strong>Categoria:</strong> {category}</li>
+                <li><strong>Ano de Lançamento:</strong> {year}</li>
+                <li><strong>Tamanho:</strong> {file_size_mb} MB</li>
+            </ul>
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{download_link}" target="_blank" style="display: inline-block; padding: 12px 24px; background-color: #e50914; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Download | Baixar Música</a>
+        </div>
+    </div>
+    """
+    
+    rendered = template
+    replacements = {
+        "{{ARTIST}}": artist,
+        "{{TITLE}}": title,
+        "{{COVER_URL}}": cover_url or "",
+        "{{DOWNLOAD_LINK}}": download_link,
+        "{{BITRATE}}": bitrate,
+        "{{FILE_SIZE_MB}}": f"{file_size_mb} MB",
+        "{{CATEGORY}}": category,
+        "{{YEAR}}": year
+    }
+    for placeholder, val in replacements.items():
+        rendered = rendered.replace(placeholder, str(val))
+    return rendered
+
+# ── Helper: Apagar temporários assincronamente ──────────────────────────────
+def remove_files(paths: list):
+    for p in paths:
+        if os.path.exists(p):
+            try: os.remove(p)
+            except: pass
+
 app = FastAPI(title="Trainable Slogan Mixer", version="3.0.0")
+
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Constante: número FIXO de features
 N_FEATURES = 17
@@ -394,7 +579,10 @@ class TrainableSloganMixer:
         change_in_dbfs = target_dbfs - sound.dBFS
         return sound.apply_gain(change_in_dbfs)
 
-    def mix(self, music_path: str, s1_path: str, s2_path: str, output_path: str) -> Dict:
+    def mix(self, music_path: str, s1_path: str, s2_path: str, output_path: str,
+            title: str = None, artist: str = None, year: str = None,
+            category: str = None, cover_url: str = None,
+            slogan1_pos: float = None, slogan2_pos: float = None) -> Dict:
         # 1. Carregar áudios e Normalizar (Música: -14 dBFS, Slogans: -12 dBFS para voz sobressair)
         music = self._normalize_dbfs(self._load_audio(music_path), -14.0)
         s1 = self._normalize_dbfs(self._load_audio(s1_path), -12.0)
@@ -406,15 +594,20 @@ class TrainableSloganMixer:
         energy_curve = features.get("energy_curve", [])
         
         # Slogan 1: Vale entre 0s e os primeiros 30s
-        pos1_sec = self._find_best_valley(energy_curve, duration, 0.0, min(30.0, duration / 3.0))
+        if slogan1_pos is not None:
+            pos1_sec = max(0.0, min(duration - 2.0, float(slogan1_pos)))
+        else:
+            pos1_sec = self._find_best_valley(energy_curve, duration, 0.0, min(30.0, duration / 3.0))
         p1 = int(pos1_sec * 1000)
         
         # Slogan 2: Vale no final, garantindo que cabe inteiro antes da música acabar
-        s2_sec = len(s2) / 1000.0
-        safe_end_sec = max(pos1_sec + 5.0, duration - s2_sec - 1.0) # Termina 1s antes do fim da música
-        end_search_start = max(pos1_sec + 5.0, safe_end_sec - 20.0) # Procura nos 20s antes do safe_end
-        
-        pos2_sec = self._find_best_valley(energy_curve, duration, end_search_start, safe_end_sec)
+        if slogan2_pos is not None:
+            pos2_sec = max(pos1_sec + 2.0, min(duration - 1.0, float(slogan2_pos)))
+        else:
+            s2_sec = len(s2) / 1000.0
+            safe_end_sec = max(pos1_sec + 5.0, duration - s2_sec - 1.0) # Termina 1s antes do fim da música
+            end_search_start = max(pos1_sec + 5.0, safe_end_sec - 20.0) # Procura nos 20s antes do safe_end
+            pos2_sec = self._find_best_valley(energy_curve, duration, end_search_start, safe_end_sec)
         p2 = int(pos2_sec * 1000)
         
         if p2 < p1 + len(s1):
@@ -445,6 +638,9 @@ class TrainableSloganMixer:
         mixed = music.overlay(track)
         mixed.export(output_path, format="mp3", bitrate="192k")
         
+        # Injetar tags ID3 e Capa se fornecidos
+        inject_id3_tags(output_path, title, artist, year, category, cover_url)
+        
         return {
             "slogan1_position": pos1_sec,
             "slogan2_position": pos2_sec,
@@ -452,7 +648,9 @@ class TrainableSloganMixer:
         }
     
     def _load_audio(self, path: str) -> AudioSegment:
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+        tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp = tmp_file.name
+        tmp_file.close()
         subprocess.run(["ffmpeg", "-y", "-i", path, "-ac", "2", "-ar", "44100", tmp],
                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         audio = AudioSegment.from_wav(tmp)
@@ -486,9 +684,12 @@ async def status():
 
 @app.post("/mix")
 async def mix(
+    background_tasks: BackgroundTasks,
     music: UploadFile = File(...),
     slogan1: UploadFile = File(None),
     slogan2: UploadFile = File(None),
+    slogan1_pos: float = Form(None),
+    slogan2_pos: float = Form(None),
     use_model: bool = Form(True),
     job_id: str = Form("unknown")
 ):
@@ -499,6 +700,9 @@ async def mix(
     s1_path = os.path.join("temp", f"s1_{job_id}.wav")
     s2_path = os.path.join("temp", f"s2_{job_id}.wav")
     out_path = os.path.join("temp", f"out_{job_id}.mp3")
+    
+    # Ensure temp dir exists
+    os.makedirs("temp", exist_ok=True)
     
     with open(m_path, "wb") as f: f.write(await music.read())
     
@@ -513,7 +717,10 @@ async def mix(
         AudioSegment.silent(duration=100).export(s2_path, format="wav")
     
     # Sempre usamos a nova lógica inteligente (Ducking + Intro/Outro)
-    result = mixer.mix(m_path, s1_path, s2_path, out_path)
+    result = mixer.mix(m_path, s1_path, s2_path, out_path,
+                      slogan1_pos=slogan1_pos, slogan2_pos=slogan2_pos)
+    
+    background_tasks.add_task(remove_files, [m_path, s1_path, s2_path, out_path])
     
     return FileResponse(out_path, media_type="audio/mpeg", 
                       filename=f"mixed_{job_id}.mp3",
@@ -540,15 +747,55 @@ class AsyncMixRequest(BaseModel):
     source_url: str = None
     supabase_url: str = None
     supabase_key: str = None
+    blogger_template: str = None
+    shortlink_provider: str = "none"
+    shortlink_api_key: str = None
+    default_cover_url: str = None
 
 def download_file(url: str, dest_path: str):
     if not url: return False
     try:
+        import requests
         log.info(f"Downloading from {url}")
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response, open(dest_path, 'wb') as out_file:
-            data = response.read()
-            out_file.write(data)
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        })
+        
+        # 1. Faz o GET da URL. Se redirecionar para uma página HTML, a sessão obterá os cookies de sessão.
+        res = session.get(url, stream=True, timeout=30)
+        final_url = res.url
+        content_type = res.headers.get('Content-Type', '')
+        
+        if 'text/html' in content_type:
+            log.info(f"Redirected/Resolved to HTML landing page: {final_url}. Retrying with session cookies and Referer...")
+            # Tentamos obter o arquivo novamente com o Referer definido para a página de download de onde fomos redirecionados
+            headers = {
+                'Referer': final_url
+            }
+            res = session.get(url, headers=headers, stream=True, timeout=30)
+            
+        if res.status_code >= 400:
+            log.error(f"Download failed with status {res.status_code}")
+            return False
+            
+        with open(dest_path, 'wb') as f:
+            for chunk in res.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    
+        # Validação: garantir que o ficheiro descarregado não é HTML corrompido
+        if os.path.exists(dest_path):
+            size = os.path.getsize(dest_path)
+            if size < 200 * 1024:  # menor que 200 KB
+                with open(dest_path, 'rb') as f:
+                    sample = f.read(1024).lower()
+                    if b'<!doctype html' in sample or b'<html' in sample or b'<head' in sample:
+                        log.error("Downloaded file is HTML landing page instead of raw audio!")
+                        try: os.remove(dest_path)
+                        except: pass
+                        return False
+                        
         return True
     except Exception as e:
         log.error(f"Download error: {e}")
@@ -579,34 +826,26 @@ def upload_to_drive(file_path: str, file_name: str, folder_id: str, access_token
         raise Exception(f"Google Drive Error: {res.text}")
     return res.json()
 
-def post_to_blogger(blog_id: str, access_token: str, title: str, artist: str, cover_url: str, drive_file_id: str, bitrate: str, file_size_mb: float, category: str, year: str):
+def post_to_blogger(blog_id: str, access_token: str, title: str, artist: str, cover_url: str, drive_file_id: str, bitrate: str, file_size_mb: float, category: str, year: str, template: str = None, shortlink_provider: str = "none", shortlink_api_key: str = None):
     url = f"https://www.googleapis.com/blogger/v3/blogs/{blog_id}/posts/"
     
     download_link = f"https://drive.google.com/uc?export=download&id={drive_file_id}"
-    cover_html = f'<img src="{cover_url}" alt="{artist} - {title}" style="max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px;" />' if cover_url else ""
     
-    content = f"""
-    <div style="text-align: left; max-width: 800px; margin: 0 auto;">
-        <div style="text-align: center; margin-bottom: 20px;">
-            {cover_html}
-        </div>
-        <p style="text-align: justify; font-size: 16px; line-height: 1.6;">Já podes desfrutar da nova música de <strong>{artist}</strong> intitulada <strong>{title}</strong>, faça já o download e desfrute de boa música.</p>
-        <div style="margin-top: 20px; margin-bottom: 30px;">
-            <ul style="list-style-type: none; padding: 0; font-size: 15px; line-height: 1.8;">
-                <li><strong>Artista:</strong> {artist}</li>
-                <li><strong>Música:</strong> {title}</li>
-                <li><strong>Formato:</strong> Mp3</li>
-                <li><strong>Qualidade:</strong> {bitrate} kbps</li>
-                <li><strong>Categoria:</strong> {category}</li>
-                <li><strong>Ano de Lançamento:</strong> {year}</li>
-                <li><strong>Tamanho:</strong> {file_size_mb} MB</li>
-            </ul>
-        </div>
-        <div style="text-align: center; margin-top: 20px;">
-            <a href="{download_link}" target="_blank" style="display: inline-block; padding: 12px 24px; background-color: #e50914; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Download | Baixar Música</a>
-        </div>
-    </div>
-    """
+    # Encurtar link se configurado
+    final_download_link = shorten_url(download_link, shortlink_provider, shortlink_api_key)
+    
+    # Renderizar template
+    content = render_blogger_template(
+        template=template,
+        artist=artist,
+        title=title,
+        cover_url=cover_url,
+        download_link=final_download_link,
+        bitrate=bitrate,
+        file_size_mb=file_size_mb,
+        category=category,
+        year=year
+    )
     
     payload = {
         "kind": "blogger#post",
@@ -624,7 +863,7 @@ def post_to_blogger(blog_id: str, access_token: str, title: str, artist: str, co
     res = requests.post(url, headers=headers, json=payload)
     if not res.ok:
         log.error(f"Erro ao postar no Blogger: {res.text}")
-        return None
+        raise Exception(f"Blogger API error {res.status_code}: {res.text}")
     else:
         post_data = res.json()
         final_url = post_data.get('url')
@@ -668,8 +907,14 @@ def process_async_job(req: AsyncMixRequest, job_id: str):
         else:
             AudioSegment.silent(duration=100).export(s2_path, format="wav")
             
-        # Mixar
-        mixer.mix(m_path, s1_path, s2_path, out_path)
+        # Definir capa (prioridade para a capa da música, fallback para a padrão)
+        final_cover_url = req.cover_url if req.cover_url else req.default_cover_url
+        
+        # Mixar e injetar tags ID3
+        mixer.mix(m_path, s1_path, s2_path, out_path,
+                  title=req.song_title, artist=req.artist_name,
+                  year=req.year, category=req.category,
+                  cover_url=final_cover_url)
         
         # Upload
         file_name = f"{req.artist_name} - {req.song_title}.mp3"
@@ -691,12 +936,15 @@ def process_async_job(req: AsyncMixRequest, job_id: str):
                         access_token=req.drive_token,
                         title=req.song_title,
                         artist=req.artist_name,
-                        cover_url=req.cover_url,
+                        cover_url=final_cover_url,
                         drive_file_id=file_id,
                         bitrate=req.bitrate,
                         file_size_mb=file_size_mb,
                         category=req.category,
-                        year=req.year
+                        year=req.year,
+                        template=req.blogger_template,
+                        shortlink_provider=req.shortlink_provider,
+                        shortlink_api_key=req.shortlink_api_key
                     )
                     
                     if blogger_url and req.supabase_url and req.supabase_key:
@@ -721,6 +969,7 @@ def process_async_job(req: AsyncMixRequest, job_id: str):
         
     except Exception as e:
         log.error(f"❌ Erro no job assíncrono {job_id}: {e}")
+        log_to_supabase(req.supabase_url, req.supabase_key, req.user_id, "error", f"❌ Erro no processamento de '{req.song_title}': {e}")
     finally:
         for p in [m_path, s1_path, s2_path, out_path]:
             if os.path.exists(p):

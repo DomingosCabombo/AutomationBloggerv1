@@ -9,8 +9,8 @@ const Artists = () => {
     <DashboardLayout>
       <div className="space-y-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Artists</h1>
-          <p className="text-muted-foreground">Manage the list of artists to be processed by the automation engine.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Artistas</h1>
+          <p className="text-indigo-200">Gere a lista de artistas para o motor de automação procurar.</p>
         </div>
         <ArtistManagement />
       </div>

@@ -114,46 +114,46 @@ const ArtistManagement = () => {
   );
 
   return (
-    <Card className="border-none shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+    <Card className="bg-white/5 border-white/10 backdrop-blur-md shadow-lg shadow-black/20 text-slate-50">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-white/10 mb-4">
         <div>
-          <CardTitle className="text-xl font-bold flex items-center gap-2">
-            <UserPlus size={20} className="text-primary" />
-            Artist Management
+          <CardTitle className="text-xl font-bold flex items-center gap-2 text-white">
+            <UserPlus size={20} className="text-indigo-400" />
+            Gestão de Artistas
           </CardTitle>
-          <CardDescription>Manage the list of artists to be processed by the automation engine.</CardDescription>
+          <CardDescription className="text-slate-400">Adiciona ou remove os artistas que a Inteligência Artificial deve procurar.</CardDescription>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
         <form onSubmit={handleAddArtist} className="flex gap-3">
           <Input 
-            placeholder="Enter artist name..." 
+            placeholder="Nome do artista..." 
             value={newArtistName}
             onChange={(e) => setNewArtistName(e.target.value)}
-            className="flex-1"
+            className="flex-1 bg-slate-900/50 border-white/10 text-white placeholder:text-slate-500"
           />
-          <Button type="submit" disabled={isAdding || !newArtistName.trim()} className="gap-2">
+          <Button type="submit" disabled={isAdding || !newArtistName.trim()} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white">
             {isAdding ? <Loader2 className="animate-spin" size={18} /> : <Plus size={18} />}
-            Add Artist
+            Adicionar Artista
           </Button>
         </form>
 
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
           <Input 
-            className="pl-10" 
-            placeholder="Search artists..." 
+            className="pl-10 bg-slate-900/50 border-white/10 text-white placeholder:text-slate-500" 
+            placeholder="Pesquisar artistas..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
 
-        <div className="rounded-md border">
+        <div className="rounded-xl border border-white/10 overflow-hidden bg-slate-900/30">
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Artist Name</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+            <TableHeader className="bg-slate-900/50">
+              <TableRow className="border-white/10 hover:bg-transparent">
+                <TableHead className="text-slate-300">Nome do Artista</TableHead>
+                <TableHead className="text-right text-slate-300">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -164,14 +164,14 @@ const ArtistManagement = () => {
                   </TableCell>
                 </TableRow>
               ) : filteredArtists.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={2} className="text-center py-8 text-muted-foreground">
-                    No artists found.
+                <TableRow className="border-white/10 hover:bg-transparent">
+                  <TableCell colSpan={2} className="text-center py-8 text-slate-500">
+                    Nenhum artista encontrado.
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredArtists.map((artist) => (
-                  <TableRow key={artist.id}>
+                  <TableRow key={artist.id} className="border-white/10 hover:bg-white/5 transition-colors">
                     <TableCell>
                       {editingId === artist.id ? (
                         <Input 
@@ -180,10 +180,10 @@ const ArtistManagement = () => {
                           onBlur={() => handleUpdateArtist(artist.id)}
                           onKeyDown={(e) => e.key === 'Enter' && handleUpdateArtist(artist.id)}
                           autoFocus
-                          className="h-8"
+                          className="h-8 bg-slate-900/50 border-indigo-500/50 text-white"
                         />
                       ) : (
-                        <span className="font-medium">{artist.name}</span>
+                        <span className="font-medium text-slate-200">{artist.name}</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">
@@ -191,7 +191,7 @@ const ArtistManagement = () => {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-muted-foreground hover:text-primary"
+                          className="h-8 w-8 text-slate-400 hover:text-indigo-400 hover:bg-indigo-400/10"
                           onClick={() => startEditing(artist)}
                         >
                           <Edit2 size={14} />
@@ -199,7 +199,7 @@ const ArtistManagement = () => {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          className="h-8 w-8 text-slate-400 hover:text-red-400 hover:bg-red-400/10"
                           onClick={() => handleDeleteArtist(artist.id, artist.name)}
                         >
                           <Trash2 size={14} />

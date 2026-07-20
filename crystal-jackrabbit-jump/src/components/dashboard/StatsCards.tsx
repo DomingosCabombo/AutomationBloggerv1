@@ -7,10 +7,10 @@ import { supabase } from '@/integrations/supabase/client';
 
 const StatsCards = () => {
   const [stats, setStats] = React.useState([
-    { title: "Total Artists", value: "0", icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
-    { title: "Processed Posts", value: "0", icon: FileText, color: "text-orange-500", bg: "bg-orange-500/10" },
-    { title: "Files in Drive", value: "0", icon: Cloud, color: "text-purple-500", bg: "bg-purple-500/10" },
-    { title: "Recent Logs", value: "0", icon: Music, color: "text-green-500", bg: "bg-green-500/10" }
+    { title: "Artistas a Procurar", value: "0", icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
+    { title: "Músicas Publicadas", value: "0", icon: FileText, color: "text-orange-500", bg: "bg-orange-500/10" },
+    { title: "Áudios Misturados", value: "0", icon: Cloud, color: "text-purple-500", bg: "bg-purple-500/10" },
+    { title: "Registos do Sistema", value: "0", icon: Music, color: "text-green-500", bg: "bg-green-500/10" }
   ]);
 
   React.useEffect(() => {
@@ -23,10 +23,10 @@ const StatsCards = () => {
       ]);
 
       setStats([
-        { title: "Total Artists", value: (artists.count || 0).toString(), icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
-        { title: "Processed Posts", value: (posts.count || 0).toString(), icon: FileText, color: "text-orange-500", bg: "bg-orange-500/10" },
-        { title: "Files in Drive", value: (files.count || 0).toString(), icon: Cloud, color: "text-purple-500", bg: "bg-purple-500/10" },
-        { title: "System Logs", value: (logs.count || 0).toString(), icon: Music, color: "text-green-500", bg: "bg-green-500/10" }
+        { title: "Artistas a Procurar", value: (artists.count || 0).toString(), icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
+        { title: "Músicas Publicadas", value: (posts.count || 0).toString(), icon: FileText, color: "text-orange-500", bg: "bg-orange-500/10" },
+        { title: "Áudios Misturados", value: (posts.count || 0).toString(), icon: Cloud, color: "text-purple-500", bg: "bg-purple-500/10" },
+        { title: "Registos do Sistema", value: (logs.count || 0).toString(), icon: Music, color: "text-green-500", bg: "bg-green-500/10" }
       ]);
     };
 
@@ -48,17 +48,17 @@ const StatsCards = () => {
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       {stats.map((stat, index) => (
-        <Card key={index} className="border-none shadow-sm hover:shadow-md transition-shadow">
+        <Card key={index} className="bg-white/5 border-white/10 backdrop-blur-md shadow-lg shadow-black/20 hover:border-indigo-500/50 hover:bg-white/10 transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+            <CardTitle className="text-sm font-medium text-slate-400">
               {stat.title}
             </CardTitle>
-            <div className={`${stat.bg} p-2 rounded-lg`}>
-              <stat.icon className={`${stat.color}`} size={18} />
+            <div className={`${stat.bg} p-2 rounded-xl`}>
+              <stat.icon className={`${stat.color}`} size={20} />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stat.value}</div>
+            <div className="text-3xl font-extrabold text-white">{stat.value}</div>
           </CardContent>
         </Card>
       ))}

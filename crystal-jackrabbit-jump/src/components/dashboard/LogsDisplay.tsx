@@ -67,11 +67,11 @@ const LogsDisplay = () => {
   };
 
   return (
-    <Card className="border-none shadow-sm bg-slate-950 text-slate-50">
-      <CardHeader className="flex flex-row items-center justify-between border-b border-slate-800 py-3">
-        <CardTitle className="text-sm font-medium flex items-center gap-2">
+    <Card className="bg-white/5 border-white/10 backdrop-blur-md shadow-lg shadow-black/20 text-slate-50">
+      <CardHeader className="flex flex-row items-center justify-between border-b border-white/10 py-3">
+        <CardTitle className="text-sm font-medium flex items-center gap-2 text-slate-300">
           <TerminalIcon size={16} />
-          System Logs
+          Registos do Sistema (Logs)
         </CardTitle>
         <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-slate-50" onClick={clearLogs}>
           <Trash2 size={14} />

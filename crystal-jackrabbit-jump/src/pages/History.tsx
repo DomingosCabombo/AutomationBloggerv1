@@ -98,13 +98,24 @@ const History = () => {
                   </div>
 
                   <div className="pt-4 border-t flex items-center gap-2">
-                    {/* Botão Ver no Blog com prioridade para blogger_url */}
-                    <Button className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white" asChild>
-                      <a href={item.blogger_url || item.source_url} target="_blank" rel="noreferrer">
-                        <ExternalLink size={16} />
-                        {item.blogger_url ? "Ver no Blog" : "Ver Original"}
-                      </a>
-                    </Button>
+                    {item.blogger_url ? (
+                      /* Publicado: abre o post no Blogger */
+                      <Button className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white" asChild>
+                        <a href={item.blogger_url} target="_blank" rel="noreferrer">
+                          <ExternalLink size={16} />
+                          Ver no Blog
+                        </a>
+                      </Button>
+                    ) : (
+                      /* Ainda a processar: sem link disponível */
+                      <div className="w-full flex items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 py-2 text-sm text-slate-400 select-none">
+                        <svg className="animate-spin h-4 w-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                        </svg>
+                        A processar...
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

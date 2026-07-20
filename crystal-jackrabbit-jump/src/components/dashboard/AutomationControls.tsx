@@ -58,15 +58,15 @@ const AutomationControls = () => {
   };
 
   return (
-    <Card className="border-none shadow-sm overflow-hidden">
-      <div className={`h-1 w-full ${isRunning ? 'bg-green-500 animate-pulse' : 'bg-muted'}`} />
+    <Card className="bg-white/5 border-white/10 backdrop-blur-md shadow-lg shadow-black/20 overflow-hidden">
+      <div className={`h-1 w-full ${isRunning ? 'bg-green-500 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'bg-slate-700'}`} />
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Zap className={isRunning ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground"} size={20} />
-          Automation Engine
+        <CardTitle className="flex items-center gap-2 text-white">
+          <Zap className={isRunning ? "text-yellow-400 fill-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.5)]" : "text-slate-500"} size={20} />
+          Motor de Automação
         </CardTitle>
-        <CardDescription>
-          Control the background worker that scrapes and processes music.
+        <CardDescription className="text-slate-400">
+          Controla o robô que extrai, mistura as tuas músicas e as publica automaticamente no Blogger.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap gap-4">
@@ -92,18 +92,18 @@ const AutomationControls = () => {
         <Button 
           size="lg" 
           variant="outline" 
-          className="gap-2"
+          className="gap-2 border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
           onClick={runManual}
           disabled={isProcessing}
         >
           <RefreshCw size={18} className={isProcessing ? "animate-spin" : ""} />
-          Run Manual Scrape
+          Forçar Extração Manual
         </Button>
 
         <div className="flex-1 flex items-center justify-end">
           <div className="text-right">
-            <p className="text-sm font-medium">Next run in:</p>
-            <p className="text-2xl font-mono font-bold text-primary">14:52</p>
+            <p className="text-sm font-medium text-slate-400">Próxima ronda em:</p>
+            <p className="text-2xl font-mono font-bold text-indigo-400">14:52</p>
           </div>
         </div>
       </CardContent>

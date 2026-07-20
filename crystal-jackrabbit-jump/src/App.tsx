@@ -13,6 +13,10 @@ import AudioSlogan from "./pages/AudioSlogan";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import Logs from "./pages/Logs";
+import Landing from "./pages/Landing";
+import Onboarding from "./pages/Onboarding";
+import OnboardingGuard from "./components/auth/OnboardingGuard";
+import SubscriptionGuard from "./components/auth/SubscriptionGuard";
 
 const queryClient = new QueryClient();
 
@@ -26,39 +30,75 @@ const App = () => (
           <Routes>
             <Route path="/login" element={<Login />} />
             
-            <Route path="/" element={
+            <Route path="/" element={<Landing />} />
+            
+            <Route path="/onboarding" element={
               <ProtectedRoute>
-                <Index />
+                <SubscriptionGuard>
+                  <OnboardingGuard>
+                    <Onboarding />
+                  </OnboardingGuard>
+                </SubscriptionGuard>
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/dashboard" element={
+              <ProtectedRoute>
+                <SubscriptionGuard>
+                  <OnboardingGuard>
+                    <Index />
+                  </OnboardingGuard>
+                </SubscriptionGuard>
               </ProtectedRoute>
             } />
             
             <Route path="/artists" element={
               <ProtectedRoute>
-                <Artists />
+                <SubscriptionGuard>
+                  <OnboardingGuard>
+                    <Artists />
+                  </OnboardingGuard>
+                </SubscriptionGuard>
               </ProtectedRoute>
             } />
             
             <Route path="/slogans" element={
               <ProtectedRoute>
-                <AudioSlogan />
+                <SubscriptionGuard>
+                  <OnboardingGuard>
+                    <AudioSlogan />
+                  </OnboardingGuard>
+                </SubscriptionGuard>
               </ProtectedRoute>
             } />
             
             <Route path="/settings" element={
               <ProtectedRoute>
-                <Settings />
+                <SubscriptionGuard>
+                  <OnboardingGuard>
+                    <Settings />
+                  </OnboardingGuard>
+                </SubscriptionGuard>
               </ProtectedRoute>
             } />
             
             <Route path="/history" element={
               <ProtectedRoute>
-                <History />
+                <SubscriptionGuard>
+                  <OnboardingGuard>
+                    <History />
+                  </OnboardingGuard>
+                </SubscriptionGuard>
               </ProtectedRoute>
             } />
             
             <Route path="/logs" element={
               <ProtectedRoute>
-                <Logs />
+                <SubscriptionGuard>
+                  <OnboardingGuard>
+                    <Logs />
+                  </OnboardingGuard>
+                </SubscriptionGuard>
               </ProtectedRoute>
             } />
             
