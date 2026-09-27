@@ -59,8 +59,38 @@ async function uploadToSupabase(localPath, remotePath) {
   return publicUrl;
 }
 
+// ── Authentication Middleware ────────────────────────────────────────────────
+async function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'] || '';
+  const token = authHeader.replace('Bearer ', '').trim() || req.query.token;
+  if (!token) return res.status(401).json({ error: 'Missing Authorization header or token query param' });
+
+  // Allow service_role key bypass
+  try {
+    const parts = token.split('.');
+    if (parts.length === 3) {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+      if (payload.role === 'service_role') {
+        req.user = { id: 'service_role', role: 'service_role' };
+        return next();
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Auth failed' });
+  }
+}
+
 // ── POST /upload ─────────────────────────────────────────────────────────────
-app.post('/upload', upload.single('audio'), async (req, res) => {
+app.post('/upload', authenticateToken, upload.single('audio'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No audio file provided.' });
 
   const jobId = uuidv4();
@@ -97,7 +127,7 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 });
 
 // ── GET /status/:id ──────────────────────────────────────────────────────────
-app.get('/status/:id', async (req, res) => {
+app.get('/status/:id', authenticateToken, async (req, res) => {
   const { data, error } = await supabase
     .from('jobs')
     .select('id, status, preset, result_url, error_message, created_at, updated_at')
@@ -109,7 +139,7 @@ app.get('/status/:id', async (req, res) => {
 });
 
 // ── GET /download/:id ────────────────────────────────────────────────────────
-app.get('/download/:id', async (req, res) => {
+app.get('/download/:id', authenticateToken, async (req, res) => {
   const { data, error } = await supabase
     .from('jobs')
     .select('status, result_url, original_name')
@@ -125,7 +155,7 @@ app.get('/download/:id', async (req, res) => {
 });
 
 // ── GET /jobs (list recent jobs) ─────────────────────────────────────────────
-app.get('/jobs', async (req, res) => {
+app.get('/jobs', authenticateToken, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
   const { data, error } = await supabase
     .from('jobs')

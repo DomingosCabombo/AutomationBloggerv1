@@ -20,7 +20,12 @@ import {
   Info,
   Clock,
   AudioLines,
-  Loader2
+  Loader2,
+  Download,
+  Send,
+  FileAudio,
+  FolderUp,
+  Image as ImageIcon
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { showSuccess, showError } from '@/utils/toast';
@@ -42,6 +47,17 @@ const AudioSlogan = () => {
   const [mixMethod, setMixMethod] = React.useState('sound_engineer_pro');
   const [isModified, setIsModified] = React.useState(false);
   const [isSyncing, setIsSyncing] = React.useState(false);
+  const [isGeneratingTunnel, setIsGeneratingTunnel] = React.useState(false);
+
+  // Local file upload & publication state
+  const [localFile, setLocalFile] = React.useState<File | null>(null);
+  const [localCoverFile, setLocalCoverFile] = React.useState<File | null>(null);
+  const [localArtist, setLocalArtist] = React.useState('');
+  const [localTitle, setLocalTitle] = React.useState('');
+  const [localCategory, setLocalCategory] = React.useState('Kizomba');
+  const [localYear, setLocalYear] = React.useState(new Date().getFullYear().toString());
+  const [localCoverUrl, setLocalCoverUrl] = React.useState('');
+  const [isPublishingLocal, setIsPublishingLocal] = React.useState(false);
 
   // Audio player references
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -87,8 +103,6 @@ const AudioSlogan = () => {
       setIsSyncing(false);
     }
   };
-
-  const [isGeneratingTunnel, setIsGeneratingTunnel] = React.useState(false);
 
   const handleGenerateAndSyncTunnel = async () => {
     setIsGeneratingTunnel(true);
@@ -172,11 +186,17 @@ const AudioSlogan = () => {
 
       formData.append("job_id", "test_" + Math.random().toString(36).substring(7));
 
+      const { data: { session } } = await supabase.auth.getSession();
+      const mixHeaders: Record<string, string> = {
+        "Bypass-Tunnel-Reminder": "true"
+      };
+      if (session?.access_token) {
+        mixHeaders["Authorization"] = `Bearer ${session.access_token}`;
+      }
+
       const res = await fetch(`${apiBaseUrl}/mix`, {
         method: "POST",
-        headers: {
-          "Bypass-Tunnel-Reminder": "true"
-        },
+        headers: mixHeaders,
         body: formData
       });
 
@@ -225,11 +245,17 @@ const AudioSlogan = () => {
       formData.append("slogan2_position", slogan2Pos.toString());
       formData.append("genre", "TestMix");
 
+      const { data: { session } } = await supabase.auth.getSession();
+      const trainHeaders: Record<string, string> = {
+        "Bypass-Tunnel-Reminder": "true"
+      };
+      if (session?.access_token) {
+        trainHeaders["Authorization"] = `Bearer ${session.access_token}`;
+      }
+
       const res = await fetch(`${apiBaseUrl}/train/add`, {
         method: "POST",
-        headers: {
-          "Bypass-Tunnel-Reminder": "true"
-        },
+        headers: trainHeaders,
         body: formData
       });
 
@@ -239,6 +265,168 @@ const AudioSlogan = () => {
       showError(`Erro ao treinar IA: ${e.message}`);
     } finally {
       setIsSavingExample(false);
+    }
+  };
+
+  // Handler for direct local MP3 publishing to Blogger with slogans & cover upload
+  const handlePublishLocal = async () => {
+    if (!localFile) {
+      showError("Por favor seleciona um ficheiro MP3 local.");
+      return;
+    }
+    if (!localArtist.trim() || !localTitle.trim()) {
+      showError("Por favor preenche o Artista e o Título da música.");
+      return;
+    }
+
+    setIsPublishingLocal(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Utilizador não autenticado.");
+
+      // 1. Upload local MP3 file to Supabase storage
+      showSuccess("A carregar ficheiro MP3 para a cloud...");
+      const fileExt = localFile.name.split('.').pop() || 'mp3';
+      const fileName = `${user.id}/local_upload_${Date.now()}.${fileExt}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('slogans')
+        .upload(fileName, localFile, { upsert: true });
+
+      if (uploadErr) throw uploadErr;
+
+      const { data: { publicUrl: musicPublicUrl } } = supabase.storage
+        .from('slogans')
+        .getPublicUrl(fileName);
+
+      // 2. Upload local cover image file if provided
+      let finalCoverUrl = localCoverUrl.trim();
+      if (localCoverFile) {
+        showSuccess("A carregar imagem de capa personalizada...");
+        const imgExt = localCoverFile.name.split('.').pop() || 'jpg';
+        const imgName = `${user.id}/cover_${Date.now()}.${imgExt}`;
+
+        const { error: imgErr } = await supabase.storage
+          .from('slogans')
+          .upload(imgName, localCoverFile, { upsert: true });
+
+        if (imgErr) throw imgErr;
+
+        const { data: { publicUrl: imgPublicUrl } } = supabase.storage
+          .from('slogans')
+          .getPublicUrl(imgName);
+
+        finalCoverUrl = imgPublicUrl;
+      }
+
+      // 3. Load automation settings and credentials
+      const { data: autoSettings } = await supabase
+        .from('automation_settings')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      const { data: secureSettings } = await supabase
+        .from('settings')
+        .select('client_id, client_secret, refresh_token, blog_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      let driveToken = "";
+      if (secureSettings?.client_id && secureSettings?.client_secret && secureSettings?.refresh_token) {
+        try {
+          const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              client_id: secureSettings.client_id,
+              client_secret: secureSettings.client_secret,
+              refresh_token: secureSettings.refresh_token,
+              grant_type: "refresh_token",
+            }),
+          });
+          const tokenJson = await tokenRes.json();
+          driveToken = tokenJson.access_token || "";
+        } catch (err) {
+          console.error("Erro ao obter access token do Google Drive:", err);
+        }
+      }
+
+      const blogId = secureSettings?.blog_id || "";
+
+      const payload = {
+        music_url: musicPublicUrl,
+        slogan1_url: (autoSettings?.slogan_position === "beginning" || autoSettings?.slogan_position === "both")
+          ? (autoSettings?.slogan1_url || slogans.slogan1_url || "")
+          : "",
+        slogan2_url: (autoSettings?.slogan_position === "end" || autoSettings?.slogan_position === "both")
+          ? (autoSettings?.slogan2_url || slogans.slogan2_url || "")
+          : "",
+        drive_token: driveToken,
+        drive_folder_id: autoSettings?.drive_folder_id || "",
+        song_title: localTitle.trim(),
+        user_id: user.id,
+        artist_name: localArtist.trim(),
+        cover_url: finalCoverUrl || autoSettings?.default_cover_url || "",
+        blog_id: blogId,
+        bitrate: autoSettings?.bitrate || "192",
+        category: localCategory.trim(),
+        year: localYear.trim(),
+        source_url: musicPublicUrl,
+        blogger_template: autoSettings?.blogger_template || "",
+        shortlink_provider: autoSettings?.shortlink_provider || "none",
+        shortlink_api_key: autoSettings?.shortlink_api_key || "",
+        default_cover_url: autoSettings?.default_cover_url || "",
+      };
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const mixHeaders: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Bypass-Tunnel-Reminder": "true"
+      };
+      if (session?.access_token) {
+        mixHeaders["Authorization"] = `Bearer ${session.access_token}`;
+      }
+
+      let targetUrl = (apiBaseUrl && apiBaseUrl.trim()) ? apiBaseUrl.trim() : (autoSettings?.audio_mix_api_url || "http://localhost:8001");
+      let res: Response;
+
+      try {
+        res = await fetch(`${targetUrl}/mix-async`, {
+          method: "POST",
+          headers: mixHeaders,
+          body: JSON.stringify(payload)
+        });
+      } catch (primaryErr: any) {
+        console.warn(`⚠️ Falha ao comunicar com ${targetUrl}: ${primaryErr.message}. A tentar fallback para http://localhost:8001...`);
+        if (targetUrl !== "http://localhost:8001") {
+          targetUrl = "http://localhost:8001";
+          res = await fetch(`${targetUrl}/mix-async`, {
+            method: "POST",
+            headers: mixHeaders,
+            body: JSON.stringify(payload)
+          });
+        } else {
+          throw primaryErr;
+        }
+      }
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Falha no motor de mistura: ${res.status} - ${errText}`);
+      }
+
+      showSuccess(`🎉 "${localTitle}" enviada com sucesso! O motor irá inserir os slogans, carregar para o Google Drive e publicar no Blogger.`);
+      setLocalFile(null);
+      setLocalCoverFile(null);
+      setLocalArtist('');
+      setLocalTitle('');
+      setLocalCoverUrl('');
+    } catch (e: any) {
+      console.error(e);
+      showError(`Erro ao publicar música local: ${e.message}`);
+    } finally {
+      setIsPublishingLocal(false);
     }
   };
 
@@ -292,7 +480,7 @@ const AudioSlogan = () => {
           <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent flex items-center gap-2">
             Gestão & Teste de Slogans <AudioLines className="text-indigo-400" size={24} />
           </h1>
-          <p className="text-slate-400 text-sm">Carrega slogans oficiais e faz testes interativos de mistura com as tuas próprias faixas de áudio.</p>
+          <p className="text-slate-400 text-sm">Carrega slogans oficiais, faz testes de mistura interativos e publica faixas MP3 locais com capas personalizadas no Blogger.</p>
         </div>
 
         {/* 1. SECTION: SLOGAN UPLOADS */}
@@ -311,23 +499,24 @@ const AudioSlogan = () => {
           </CardHeader>
           <CardContent className="space-y-6">
             
-            {/* API BASE URL AND FILE SELECTION ROW */}
-            <div className="grid gap-6 md:grid-cols-3">
-              <div className="grid gap-2">
+            {/* API BASE URL AND FILE SELECTION SECTION */}
+            <div className="space-y-4">
+              {/* ROW 1: API URL CONFIGURATION */}
+              <div className="space-y-2">
                 <Label htmlFor="apiUrl" className="text-slate-300 font-medium">Porta da API de Mixagem Local</Label>
-                <Input 
-                  id="apiUrl" 
-                  className="bg-slate-950/50 border-white/10 text-white focus:border-indigo-500"
-                  value={apiBaseUrl}
-                  onChange={(e) => setApiBaseUrl(e.target.value)}
-                  placeholder="Ex: http://localhost:8001" 
-                />
-                <div className="flex gap-2 mt-1">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Input 
+                    id="apiUrl" 
+                    className="bg-slate-950/50 border-white/10 text-white focus:border-indigo-500 max-w-xs h-10"
+                    value={apiBaseUrl}
+                    onChange={(e) => setApiBaseUrl(e.target.value)}
+                    placeholder="Ex: http://localhost:8001" 
+                  />
                   <Button
                     onClick={handleSyncSupabaseUrl}
                     disabled={isSyncing || isGeneratingTunnel}
                     variant="outline"
-                    className="border-white/10 hover:bg-white/5 text-slate-300 text-xs gap-1.5 h-9 flex-1"
+                    className="border-white/10 hover:bg-white/5 text-slate-300 text-xs gap-1.5 h-10"
                     title="Sincronizar link atual com o Supabase"
                   >
                     {isSyncing ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
@@ -336,7 +525,7 @@ const AudioSlogan = () => {
                   <Button
                     onClick={handleGenerateAndSyncTunnel}
                     disabled={isSyncing || isGeneratingTunnel}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs gap-1.5 h-9 flex-1 font-bold shadow-md shadow-indigo-600/10"
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs gap-1.5 h-10 font-bold shadow-md shadow-indigo-600/10"
                     title="Gerar novo túnel Cloudflare e sincronizar com Supabase com 1 clique"
                   >
                     {isGeneratingTunnel ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />}
@@ -345,12 +534,13 @@ const AudioSlogan = () => {
                 </div>
               </div>
 
-              <div className="md:col-span-2 grid gap-2">
+              {/* ROW 2: TEST MP3 FILE SELECTION & MIX BUTTON */}
+              <div className="space-y-2 pt-2 border-t border-white/5">
                 <Label className="text-slate-300 font-medium">Carregar Música de Teste (MP3)</Label>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-wrap">
                   <Label 
                     htmlFor="testSongInput"
-                    className="flex items-center gap-2 px-4 py-2 border border-dashed border-white/20 hover:border-indigo-500/50 rounded-lg cursor-pointer bg-slate-950/20 text-xs text-slate-300 hover:bg-slate-950/50 transition-all font-medium h-10 w-full justify-center"
+                    className="flex items-center gap-2 px-4 py-2 border border-dashed border-white/20 hover:border-indigo-500/50 rounded-lg cursor-pointer bg-slate-950/20 text-xs text-slate-300 hover:bg-slate-950/50 transition-all font-medium h-10 justify-center min-w-[240px]"
                   >
                     <Upload size={16} className="text-indigo-400" />
                     {testMusic ? testMusic.name : "Selecionar Ficheiro Mp3"}
@@ -391,7 +581,7 @@ const AudioSlogan = () => {
             {mixedAudioUrl && (
               <div className="pt-6 border-t border-white/5 space-y-6 animate-in fade-in duration-300">
                 
-                {/* TIMELINE PLAYER HEADER */}
+                {/* TIMELINE PLAYER HEADER WITH DOWNLOAD BUTTON */}
                 <div className="flex items-center justify-between flex-wrap gap-2.5">
                   <div className="flex items-center gap-3">
                     <Button 
@@ -411,11 +601,29 @@ const AudioSlogan = () => {
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2 text-xs font-mono text-slate-400 bg-slate-950/40 px-3 py-1.5 rounded-lg border border-white/5">
-                    <Clock size={14} className="text-slate-500" />
-                    <span>{formatTime(currentTime)}</span>
-                    <span className="text-slate-600">/</span>
-                    <span>{formatTime(songDuration)}</span>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 text-xs font-mono text-slate-400 bg-slate-950/40 px-3 py-1.5 rounded-lg border border-white/5">
+                      <Clock size={14} className="text-slate-500" />
+                      <span>{formatTime(currentTime)}</span>
+                      <span className="text-slate-600">/</span>
+                      <span>{formatTime(songDuration)}</span>
+                    </div>
+
+                    <a 
+                      href={mixedAudioUrl} 
+                      download={`${testMusic?.name.replace(/\.[^/.]+$/, "") || "musica"}_misturada.mp3`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Button 
+                        size="sm"
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs gap-1.5 shadow-md shadow-emerald-600/20"
+                        title="Descarregar o ficheiro de áudio misturado directamente para o computador"
+                      >
+                        <Download size={14} />
+                        Baixar Áudio Misturado
+                      </Button>
+                    </a>
                   </div>
                 </div>
 
@@ -561,6 +769,148 @@ const AudioSlogan = () => {
 
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* 3. SECTION: LOCAL MP3 UPLOAD & DIRECT BLOGGER PUBLICATION */}
+        <Card className="bg-slate-900/40 border-white/10 backdrop-blur-md shadow-xl text-slate-100">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <FolderUp size={20} className="text-emerald-400" />
+              Publicação de MP3 Local (Mistura & Post Direto no Blogger)
+            </CardTitle>
+            <CardDescription className="text-slate-400">
+              Caso já tenhas a música no teu computador e não queiras fazer scraping, carrega o ficheiro local abaixo, preenches os dados, podes fazer o upload da capa e o sistema irá misturar os slogans, fazer upload para o Google Drive e publicar no Blogger automaticamente.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* File Selector */}
+              <div className="space-y-2 md:col-span-2">
+                <Label className="text-slate-300 font-medium flex items-center gap-2">
+                  <FileAudio size={16} className="text-emerald-400" /> Ficheiro MP3 Local
+                </Label>
+                <div className="flex items-center gap-4">
+                  <Label 
+                    htmlFor="localAudioInput"
+                    className="flex items-center gap-2 px-4 py-3 border border-dashed border-white/20 hover:border-emerald-500/50 rounded-xl cursor-pointer bg-slate-950/40 text-sm text-slate-200 hover:bg-slate-950/60 transition-all font-medium w-full justify-center"
+                  >
+                    <Upload size={18} className="text-emerald-400" />
+                    {localFile ? localFile.name : "Selecionar Ficheiro MP3 do Computador..."}
+                  </Label>
+                  <Input 
+                    id="localAudioInput" 
+                    type="file" 
+                    accept=".mp3,.wav" 
+                    className="hidden" 
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setLocalFile(file);
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Artist Name */}
+              <div className="space-y-2">
+                <Label htmlFor="localArtist" className="text-slate-300 font-medium">Nome do Artista</Label>
+                <Input 
+                  id="localArtist"
+                  className="bg-slate-950/50 border-white/10 text-white focus:border-emerald-500"
+                  placeholder="Ex: 3 Finer, Black Spygo"
+                  value={localArtist}
+                  onChange={(e) => setLocalArtist(e.target.value)}
+                />
+              </div>
+
+              {/* Song Title */}
+              <div className="space-y-2">
+                <Label htmlFor="localTitle" className="text-slate-300 font-medium">Título da Música</Label>
+                <Input 
+                  id="localTitle"
+                  className="bg-slate-950/50 border-white/10 text-white focus:border-emerald-500"
+                  placeholder="Ex: Pegou"
+                  value={localTitle}
+                  onChange={(e) => setLocalTitle(e.target.value)}
+                />
+              </div>
+
+              {/* Category */}
+              <div className="space-y-2">
+                <Label htmlFor="localCategory" className="text-slate-300 font-medium">Categoria / Género</Label>
+                <Input 
+                  id="localCategory"
+                  className="bg-slate-950/50 border-white/10 text-white focus:border-emerald-500"
+                  placeholder="Ex: Kizomba / Afro House"
+                  value={localCategory}
+                  onChange={(e) => setLocalCategory(e.target.value)}
+                />
+              </div>
+
+              {/* Year */}
+              <div className="space-y-2">
+                <Label htmlFor="localYear" className="text-slate-300 font-medium">Ano de Lançamento</Label>
+                <Input 
+                  id="localYear"
+                  className="bg-slate-950/50 border-white/10 text-white focus:border-emerald-500"
+                  placeholder="Ex: 2026"
+                  value={localYear}
+                  onChange={(e) => setLocalYear(e.target.value)}
+                />
+              </div>
+
+              {/* Cover Image Upload & URL Section */}
+              <div className="space-y-3 md:col-span-2">
+                <Label className="text-slate-300 font-medium flex items-center gap-2">
+                  <ImageIcon size={16} className="text-emerald-400" /> Imagem de Capa do Post (Upload ou URL)
+                </Label>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label 
+                      htmlFor="localCoverFileInput"
+                      className="flex items-center gap-2 px-4 py-2.5 border border-dashed border-white/20 hover:border-emerald-500/50 rounded-xl cursor-pointer bg-slate-950/40 text-xs text-slate-200 hover:bg-slate-950/60 transition-all font-medium h-10 justify-center truncate"
+                    >
+                      <Upload size={15} className="text-emerald-400 shrink-0" />
+                      <span className="truncate">{localCoverFile ? localCoverFile.name : "Upload Imagem de Capa (JPG, PNG, WEBP)..."}</span>
+                    </Label>
+                    <Input 
+                      id="localCoverFileInput" 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) setLocalCoverFile(file);
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <Input 
+                      id="localCover"
+                      className="bg-slate-950/50 border-white/10 text-white focus:border-emerald-500 text-xs h-10"
+                      placeholder="Ou cola aqui o URL da Capa (http...)"
+                      value={localCoverUrl}
+                      onChange={(e) => setLocalCoverUrl(e.target.value)}
+                    />
+                  </div>
+                </div>
+                {localCoverFile && (
+                  <p className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
+                    <Check size={12} /> Ficheiro de capa selecionado: {localCoverFile.name}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <Button
+              onClick={handlePublishLocal}
+              disabled={isPublishingLocal || !localFile || !localArtist.trim() || !localTitle.trim()}
+              className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold h-12 text-sm gap-2 shadow-lg shadow-emerald-600/20"
+            >
+              {isPublishingLocal ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+              {isPublishingLocal ? "A carregar e a enviar para o Blogger..." : "Misturar Slogans & Publicar no Blogger"}
+            </Button>
           </CardContent>
         </Card>
       </div>

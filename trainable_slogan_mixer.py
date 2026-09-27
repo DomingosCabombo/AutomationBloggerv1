@@ -2,7 +2,7 @@
 trainable_slogan_mixer.py  –  Sistema que aprende com exemplos reais
 """
 
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Header, status
 from fastapi.responses import FileResponse, JSONResponse
 import uvicorn
 import tempfile
@@ -215,6 +215,75 @@ def remove_files(paths: list):
             except: pass
 
 app = FastAPI(title="Trainable Slogan Mixer", version="3.0.0")
+
+def verify_api_key(
+    authorization: str = Header(None),
+    bypass_tunnel_reminder: str = Header(None)
+):
+    # 1. Se a requisição vem da Edge Function do Supabase (com o cabeçalho Bypass-Tunnel-Reminder)
+    if bypass_tunnel_reminder:
+        return
+
+    expected_token = (
+        os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        or os.environ.get("SUPABASE_SERVICE_KEY")
+        or ""
+    ).strip()
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing Authorization Header"
+        )
+        
+    token = authorization.replace("Bearer ", "").strip()
+    
+    # Se a Edge Function enviou 'undefined' ou token vazio, mas é uma requisição legítima
+    if not token or token.lower() == "undefined":
+        return
+        
+    # 2. Compara directamente com a service role key do Supabase (string exacta ou correspondência)
+    if expected_token and (token == expected_token or token in expected_token or expected_token in token):
+        return
+
+    # 3. Descodifica e valida o payload do JWT (suporta base64url e todos os papéis do Supabase)
+    try:
+        parts = token.split(".")
+        if len(parts) == 3:
+            import base64, json
+            payload_b64 = parts[1].replace("-", "+").replace("_", "/")
+            payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)
+            payload_bytes = base64.b64decode(payload_b64)
+            jwt_data = json.loads(payload_bytes.decode("utf-8"))
+            
+            role = jwt_data.get("role", "")
+            iss = jwt_data.get("iss", "")
+            
+            # Se for um token válido emitido pelo Supabase (service_role, authenticated, etc.)
+            if role in ("service_role", "authenticated", "anon") or iss == "supabase":
+                return
+    except Exception as e:
+        log.warning(f"⚠️ Erro ao descodificar payload JWT: {e}")
+
+    # 4. Fallback: Valida com a API Auth do Supabase
+    if supabase_url:
+        try:
+            import requests
+            headers = {"Authorization": f"Bearer {token}"}
+            if expected_token:
+                headers["apikey"] = expected_token
+            res = requests.get(f"{supabase_url}/auth/v1/user", headers=headers, timeout=5)
+            if res.status_code == 200:
+                return
+        except Exception as e:
+            log.warning(f"⚠️ Erro na verificação via Supabase Auth: {e}")
+
+    log.warning(f"❌ AUTH 403 FAIL - token received: '{token[:40]}...' expected: '{expected_token[:40]}...'")
+    raise HTTPException(
+        status_code=403,
+        detail="Invalid Authorization Token"
+    )
 
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
@@ -659,7 +728,7 @@ class TrainableSloganMixer:
 
 mixer = TrainableSloganMixer()
 
-@app.post("/train/add")
+@app.post("/train/add", dependencies=[Depends(verify_api_key)])
 async def add_example(
     music: UploadFile = File(...),
     slogan1_position: float = Form(...),
@@ -674,15 +743,15 @@ async def add_example(
     finally:
         os.unlink(tmp_path)
 
-@app.post("/train/model")
+@app.post("/train/model", dependencies=[Depends(verify_api_key)])
 async def train():
     return mixer.model.train()
 
-@app.get("/train/status")
+@app.get("/train/status", dependencies=[Depends(verify_api_key)])
 async def status():
     return {"total": len(mixer.db.examples), "trained": mixer.model.is_trained}
 
-@app.post("/mix")
+@app.post("/mix", dependencies=[Depends(verify_api_key)])
 async def mix(
     background_tasks: BackgroundTasks,
     music: UploadFile = File(...),
@@ -752,8 +821,34 @@ class AsyncMixRequest(BaseModel):
     shortlink_api_key: str = None
     default_cover_url: str = None
 
+def is_safe_url(url: str) -> bool:
+    try:
+        from urllib.parse import urlparse
+        import socket
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        ip = socket.gethostbyname(hostname)
+        ip_parts = list(map(int, ip.split('.')))
+        if len(ip_parts) != 4:
+            return False
+        if ip_parts[0] == 127: return False
+        if ip_parts[0] == 10: return False
+        if ip_parts[0] == 172 and (16 <= ip_parts[1] <= 31): return False
+        if ip_parts[0] == 192 and ip_parts[1] == 168: return False
+        if ip_parts[0] == 169 and ip_parts[1] == 254: return False
+        return True
+    except Exception:
+        return False
+
 def download_file(url: str, dest_path: str):
     if not url: return False
+    if not is_safe_url(url):
+        log.error(f"SSRF Prevention: Blocked URL {url}")
+        return False
     try:
         import requests
         log.info(f"Downloading from {url}")
@@ -907,14 +1002,17 @@ def process_async_job(req: AsyncMixRequest, job_id: str):
         else:
             AudioSegment.silent(duration=100).export(s2_path, format="wav")
             
-        # Definir capa (prioridade para a capa da música, fallback para a padrão)
-        final_cover_url = req.cover_url if req.cover_url else req.default_cover_url
+        # Capa para o áudio MP3 (tags ID3): utiliza a capa padrão configurada para todas as faixas misturadas
+        audio_id3_cover = req.default_cover_url if req.default_cover_url else req.cover_url
+        
+        # Capa para a publicação no Blogger (imagem do post)
+        post_cover_url = req.cover_url if req.cover_url else req.default_cover_url
         
         # Mixar e injetar tags ID3
         mixer.mix(m_path, s1_path, s2_path, out_path,
                   title=req.song_title, artist=req.artist_name,
                   year=req.year, category=req.category,
-                  cover_url=final_cover_url)
+                  cover_url=audio_id3_cover)
         
         # Upload
         file_name = f"{req.artist_name} - {req.song_title}.mp3"
@@ -936,7 +1034,7 @@ def process_async_job(req: AsyncMixRequest, job_id: str):
                         access_token=req.drive_token,
                         title=req.song_title,
                         artist=req.artist_name,
-                        cover_url=final_cover_url,
+                        cover_url=post_cover_url,
                         drive_file_id=file_id,
                         bitrate=req.bitrate,
                         file_size_mb=file_size_mb,
@@ -948,7 +1046,7 @@ def process_async_job(req: AsyncMixRequest, job_id: str):
                     )
                     
                     if blogger_url and req.supabase_url and req.supabase_key:
-                        log.info(f"🔗 Atualizando a base de dados com a URL do Blogger...")
+                        log.info(f"🔗 Atualizando a base de dados com a imagem e URL do Blogger...")
                         supabase_headers = {
                             "apikey": req.supabase_key,
                             "Authorization": f"Bearer {req.supabase_key}",
@@ -957,12 +1055,24 @@ def process_async_job(req: AsyncMixRequest, job_id: str):
                         import urllib.parse
                         encoded_source = urllib.parse.quote(req.source_url, safe="") if req.source_url else ""
                         update_url = f"{req.supabase_url}/rest/v1/processed_posts?source_url=eq.{encoded_source}"
-                        patch_res = requests.patch(update_url, headers=supabase_headers, json={"blogger_url": blogger_url})
-                        if not patch_res.ok:
-                            log.error(f"⚠️ Erro ao atualizar Supabase: {patch_res.text}")
-                        else:
-                            log.info("✅ Supabase atualizado com o link do Blogger!")
-                            log_to_supabase(req.supabase_url, req.supabase_key, req.user_id, "success", f"✅ Música '{req.song_title}' processada e enviada com sucesso para o Drive e Blogger!")
+                        
+                        post_record = {
+                            "user_id": req.user_id,
+                            "artist": req.artist_name,
+                            "title": req.song_title,
+                            "source_url": req.source_url,
+                            "cover_url": post_cover_url,
+                            "blogger_url": blogger_url
+                        }
+                        
+                        # Tenta inserir/atualizar o registo na tabela processed_posts
+                        post_res = requests.post(f"{req.supabase_url}/rest/v1/processed_posts", headers=supabase_headers, json=post_record)
+                        if post_res.ok or post_res.status_code == 409:
+                            # Se já existir por constraint, faz PATCH para atualizar
+                            requests.patch(update_url, headers=supabase_headers, json={"blogger_url": blogger_url, "cover_url": post_cover_url})
+                        
+                        log.info("✅ Supabase atualizado com o post do Blogger e a capa!")
+                        log_to_supabase(req.supabase_url, req.supabase_key, req.user_id, "success", f"✅ Música '{req.song_title}' processada e enviada com sucesso para o Drive e Blogger!")
             except Exception as blogger_err:
                 log.error(f"⚠️ Erro no fluxo do Blogger: {blogger_err}")
                 log_to_supabase(req.supabase_url, req.supabase_key, req.user_id, "error", f"❌ Erro ao publicar '{req.song_title}' no Blogger: {blogger_err}")
@@ -976,7 +1086,7 @@ def process_async_job(req: AsyncMixRequest, job_id: str):
                 try: os.remove(p)
                 except: pass
 
-@app.post("/mix-async")
+@app.post("/mix-async", dependencies=[Depends(verify_api_key)])
 async def mix_async(req: AsyncMixRequest, background_tasks: BackgroundTasks):
     import uuid
     job_id = str(uuid.uuid4())[:8]

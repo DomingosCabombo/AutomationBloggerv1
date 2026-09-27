@@ -806,6 +806,40 @@ serve(async (req) => {
     const body = await req.json();
     currentUserId = body.userId;
 
+    // Hardening: BFLA authorization check
+    const authHeader = req.headers.get("Authorization") || "";
+    const token = authHeader.replace("Bearer ", "").trim();
+
+    let isAuthorized = false;
+    
+    // Descodifica o payload do JWT para verificar a role sem precisar da chave secreta de assinatura
+    // (a assinatura é garantidamente válida porque o gateway do Supabase já a verificou)
+    let jwtRole = "";
+    try {
+      const parts = token.split(".");
+      if (parts.length === 3) {
+        const payload = atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"));
+        const data = JSON.parse(payload);
+        jwtRole = data.role || "";
+      }
+    } catch (_) {}
+
+    if (jwtRole === "service_role") {
+      isAuthorized = true;
+    } else {
+      const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+      if (!authError && user && user.id === currentUserId) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
+      return new Response(JSON.stringify({ error: "Não autorizado: Credenciais inválidas ou ID de utilizador incorreto." }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     await logToSupabase(supabaseClient, currentUserId, "info", "🏁 Motor iniciado...");
 
     // Busca artistas do utilizador
@@ -928,10 +962,28 @@ serve(async (req) => {
     let processedCount = 0;
     let duplicateCount = 0;
     const duplicateTitles: string[] = [];
+    const totalSongs = allFoundSongs.length;
 
-    for (const song of allFoundSongs) {
+    // Notifica o frontend do total de músicas a processar
+    if (totalSongs > 0) {
+      await logToSupabase(
+        supabaseClient,
+        currentUserId,
+        "info",
+        `PROGRESS:0/${totalSongs} — A iniciar processamento de ${totalSongs} música(s)...`
+      );
+    }
+
+    for (const [songIndex, song] of allFoundSongs.entries()) {
       try {
-        // ── Verifica duplicado com lógica inteligente ──
+        // ── Log de progresso: número actual na fila ──
+        await logToSupabase(
+          supabaseClient,
+          currentUserId,
+          "info",
+          `PROGRESS:${songIndex}/${totalSongs} — A verificar: "${song.title}" (${songIndex + 1}/${totalSongs})`
+        );
+
         // ── Parse/Limpeza de Artistas e Feats no título ──
         const parsedScraped = parseFeaturedArtists(song.artist, song.title);
 
@@ -1017,14 +1069,36 @@ serve(async (req) => {
           default_cover_url: autoSettings?.default_cover_url || "",
         };
 
-        const apiRes = await fetch(`${audioMixUrl}/mix-async`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Bypass-Tunnel-Reminder": "true",
-          },
-          body: JSON.stringify(payload),
-        });
+        // ── AbortController: timeout de 55s por música para estabilidade ──
+        const songAbort = new AbortController();
+        const songTimeoutId = setTimeout(() => songAbort.abort(), 70_000);
+
+        let apiRes: Response;
+        try {
+          apiRes = await fetch(`${audioMixUrl}/mix-async`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Bypass-Tunnel-Reminder": "true",
+              "Authorization": authHeader || `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || ""}`,
+            },
+            body: JSON.stringify(payload),
+            signal: songAbort.signal,
+          });
+        } catch (fetchErr: any) {
+          if (fetchErr.name === "AbortError") {
+            await logToSupabase(
+              supabaseClient,
+              currentUserId,
+              "warn",
+              `⏱️ Timeout (70s) ao enviar "${finalTitle}" — a saltar para a próxima música.`
+            );
+            continue; // Passa automaticamente para a próxima música
+          }
+          throw fetchErr; // Outros erros sobem para o catch externo
+        } finally {
+          clearTimeout(songTimeoutId);
+        }
 
         if (!apiRes.ok) {
           const errText = await apiRes.text();
@@ -1044,7 +1118,7 @@ serve(async (req) => {
           supabaseClient,
           currentUserId,
           "info",
-          `🎉 Enviado para processamento: "${finalTitle}" — ${finalArtist}`
+          `PROGRESS:${songIndex + 1}/${totalSongs} — 🎉 Enviado: "${finalTitle}" — ${finalArtist}`
         );
         processedCount++;
       } catch (songError: any) {
@@ -1056,6 +1130,16 @@ serve(async (req) => {
           `❌ Erro ao processar "${song.title}": ${songError.message}`
         );
       }
+    }
+
+    // Notifica o frontend que o processamento terminou
+    if (totalSongs > 0) {
+      await logToSupabase(
+        supabaseClient,
+        currentUserId,
+        "info",
+        `PROGRESS:DONE — Processamento concluído: ${processedCount} nova(s) de ${totalSongs} música(s).`
+      );
     }
 
     console.log(`✅ Finalizado. ${processedCount} música(s) nova(s) processada(s).`);

@@ -101,7 +101,10 @@ async function processJob(job) {
     form.append('job_id', jobId);
 
     const response = await axios.post(`${PYTHON_SERVICE}/process`, form, {
-      headers: form.getHeaders(),
+      headers: {
+        ...form.getHeaders(),
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_KEY}`
+      },
       responseType: 'arraybuffer',
       timeout: 10 * 60 * 1000 // 10 min max
     });
