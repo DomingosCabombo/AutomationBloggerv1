@@ -12,9 +12,15 @@ require('dotenv').config();
 const app = express();
 app.use(express.json());
 
-// Enable CORS
+// Enable CORS (configurable via env variable CORS_ORIGINS)
+const allowedOrigins = (process.env.CORS_ORIGINS || '*').split(',').map(o => o.trim());
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes('*')) {
+    res.header("Access-Control-Allow-Origin", origin || "*");
+  } else if (origin && allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, Bypass-Tunnel-Reminder");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   if (req.method === 'OPTIONS') {

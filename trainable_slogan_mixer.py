@@ -62,7 +62,7 @@ def inject_id3_tags(file_path: str, title: str = None, artist: str = None, year:
         if category:
             audio.tags.add(TCON(encoding=3, text=category))
             
-        if cover_url:
+        if cover_url and cover_url.startswith(('http://', 'https://')):
             log.info(f"🎨 Descarregando capa para ID3: {cover_url}")
             try:
                 req = urllib.request.Request(cover_url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -286,9 +286,11 @@ def verify_api_key(
     )
 
 from fastapi.middleware.cors import CORSMiddleware
+cors_env = os.getenv("CORS_ORIGINS", "*")
+origins = [o.strip() for o in cors_env.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -443,7 +445,7 @@ class MusicFeatureExtractor:
                     segment_labels.append(label)
             
             with open(audio_path, 'rb') as f:
-                music_hash = hashlib.md5(f.read(8192)).hexdigest()
+                music_hash = hashlib.sha256(f.read(8192)).hexdigest()
             
             return {
                 "music_hash": music_hash,
@@ -457,7 +459,7 @@ class MusicFeatureExtractor:
         except Exception as e:
             log.error(f"Erro na extração: {e}")
             return {
-                "music_hash": hashlib.md5(b"fallback").hexdigest(),
+                "music_hash": hashlib.sha256(b"fallback").hexdigest(),
                 "duration": 180.0, "tempo": 120.0,
                 "energy_curve": [0.1]*100,
                 "spectral_features": [0.1]*200,

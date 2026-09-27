@@ -44,7 +44,7 @@ function normalizeForComparison(text: string, monitoredArtists: string[]): strin
     const normalizedArtist = normalizeText(artist);
     if (normalizedArtist && normalized.includes(normalizedArtist)) {
       foundArtists.push(normalizedArtist);
-      normalized = normalized.replace(new RegExp(escapeRegex(normalizedArtist), "g"), " ");
+      normalized = normalized.split(normalizedArtist).join(" ");
     }
   }
 

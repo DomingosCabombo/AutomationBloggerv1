@@ -1,7 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
+import 'dotenv/config';
 
-const SUPABASE_URL = "https://vazbmthmfgtaypjpkeyy.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZhemJtdGhtZmd0YXlwanBrZXl5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDg1OTk1MiwiZXhwIjoyMDkwNDM1OTUyfQ.HbTr6vBhPFo9HePMcwj5tAf0x5IyKDYclXRSTcvucrQ";
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://vazbmthmfgtaypjpkeyy.supabase.co";
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 

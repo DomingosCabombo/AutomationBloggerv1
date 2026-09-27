@@ -51,7 +51,7 @@ class SloganPositionExtractor:
             'chroma_mean': np.mean(chroma, axis=1).tolist(),
             'spectral_mean': float(np.mean(spectral)),
             'rms': float(np.sqrt(np.mean(y**2))),
-            'hash': hashlib.md5(y.tobytes()[:10000]).hexdigest()
+            'hash': hashlib.sha256(y.tobytes()[:10000]).hexdigest()
         }
     
     def detect_slogan_positions(self, music_path: str) -> dict:

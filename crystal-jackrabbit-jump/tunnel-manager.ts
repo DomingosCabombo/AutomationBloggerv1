@@ -1,4 +1,4 @@
-import { exec, spawn } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import https from 'https';
@@ -12,9 +12,9 @@ const cfdPath = path.join(rootDir, 'cfd.exe');
 const tokenScriptPath = path.join(rootDir, 'read-supabase-token.ps1');
 const SUPABASE_PROJECT_REF = 'vazbmthmfgtaypjpkeyy';
 
-function runCommand(cmd: string): Promise<string> {
+function runCommand(file: string, args: string[] = []): Promise<string> {
   return new Promise((resolve, reject) => {
-    exec(cmd, { timeout: 60000 }, (err, stdout, stderr) => {
+    execFile(file, args, { timeout: 60000 }, (err, stdout, stderr) => {
       if (err) {
         reject(new Error(stderr?.trim() || err.message));
       } else {
